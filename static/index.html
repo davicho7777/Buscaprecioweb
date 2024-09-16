@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rastreador de Precios Web</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .section { margin-bottom: 20px; border: 1px solid #ddd; padding: 10px; }
+        input, button, select { margin: 5px 0; }
+        #grafico { width: 100%; height: 400px; }
+    </style>
+</head>
+<body>
+    <h1>Rastreador de Precios Web</h1>
+
+    <div class="section">
+        <h2>Buscar Elementos</h2>
+        <input type="text" id="urlBuscar" placeholder="URL">
+        <input type="text" id="keywordsBuscar" placeholder="Keywords (separadas por coma)">
+        <button onclick="buscarElementos()">Buscar</button>
+        <div id="elementosEncontrados"></div>
+    </div>
+
+    <div class="section">
+        <h2>Obtener Precio</h2>
+        <input type="text" id="urlPrecio" placeholder="URL">
+        <input type="text" id="selectorPrecio" placeholder="Selector">
+        <input type="checkbox" id="esXPath"> <label for="esXPath">Es XPath</label>
+        <button onclick="obtenerPrecio()">Obtener Precio</button>
+        <div id="resultados"></div>
+    </div>
+
+    <div class="section">
+        <h2>Guardar Combinación</h2>
+        <input type="text" id="nombreCombo" placeholder="Nombre">
+        <input type="text" id="urlCombo" placeholder="URL">
+        <input type="text" id="selectorCombo" placeholder="Selector">
+        <button onclick="guardarCombinacion()">Guardar Combinación</button>
+    </div>
+
+    <div class="section">
+        <h2>Combinaciones Guardadas</h2>
+        <select id="combosGuardados"></select>
+        <button onclick="obtenerPrecioCombinacion()">Obtener Precio de Combinación</button>
+    </div>
+
+    <div class="section">
+        <h2>Gráfico de Precios</h2>
+        <select id="comboGrafico"></select>
+        <button onclick="generarGrafico()">Generar Gráfico</button>
+        <canvas id="grafico"></canvas>
+    </div>
+
+    <script>
+        function buscarElementos() {
+            const url = document.getElementById('urlBuscar').value;
+            const keywords = document.getElementById('keywordsBuscar').value.split(',');
+            fetch('/buscar_elementos', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url, keywords })
+            })
+            .then(response => response.json())
+            .then(data => {
+                const resultadosDiv = document.getElementById('elementosEncontrados');
+                resultadosDiv.innerHTML = data.join('<br>');
+            });
+        }
+
+        function obtenerPrecio() {
+            const url = document.getElementById('urlPrecio').value;
+            const selector = document.getElementById('selectorPrecio').value;
+            const esXPath = document.getElementById('esXPath').checked;
+            fetch('/obtener_precio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url, selector, es_xpath: esXPath })
+            })
+            .then(response => response.json())
+            .then(data => {
+                const resultadosDiv = document.getElementById('resultados');
+                resultadosDiv.innerHTML = `Precio: ${data.precio}, Fecha: ${data.fecha_hora}`;
+            });
+        }
+
+        function guardarCombinacion() {
+            const nombre = document.getElementById('nombreCombo').value;
+            const url = document.getElementById('urlCombo').value;
+            const selector = document.getElementById('selectorCombo').value;
+            fetch('/guardar_combinacion', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ nombre, url, selector })
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.mensaje);
+                obtenerCombinaciones();
+            });
+        }
+
+        function obtenerCombinaciones() {
+            return fetch('/obtener_combinaciones')
+                .then(response => response.json())
+                .then(combos => {
+                    const select = document.getElementById('combosGuardados');
+                    const selectGrafico = document.getElementById('comboGrafico');
+                    select.innerHTML = '';
+                    selectGrafico.innerHTML = '';
+                    combos.forEach(combo => {
+                        const option = document.createElement('option');
+                        option.value = JSON.stringify(combo);
+                        option.textContent = combo.nombre;
+                        select.appendChild(option);
+                        
+                        const optionGrafico = option.cloneNode(true);
+                        selectGrafico.appendChild(optionGrafico);
+                    });
+                });
+        }
+
+        function obtenerPrecioCombinacion() {
+            const combo = JSON.parse(document.getElementById('combosGuardados').value);
+            fetch('/obtener_precio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: combo.url, selector: combo.selector })
+            })
+            .then(response => response.json())
+            .then(data => {
+                const resultadosDiv = document.getElementById('resultados');
+                resultadosDiv.innerHTML = `Precio para ${combo.nombre}: ${data.precio}, Fecha: ${data.fecha_hora}`;
+            });
+        }
+
+        let chart;
+
+        function generarGrafico() {
+            const comboSeleccionado = JSON.parse(document.getElementById('comboGrafico').value);
+            fetch(`/obtener_datos_grafico/${comboSeleccionado.nombre}`)
+                .then(response => response.json())
+                .then(data => {
+                    const ctx = document.getElementById('grafico').getContext('2d');
+                    
+                    if (chart) {
+                        chart.destroy();
+                    }
+
+                    chart = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: data.fechas,
+                            datasets: [{
+                                label: 'Precio',
+                                data: data.precios,
+                                borderColor: 'rgb(75, 192, 192)',
+                                tension: 0.1
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            scales: {
+                                x: {
+                                    type: 'time',
+                                    time: {
+                                        unit: 'day'
+                                    }
+                                },
+                                y: {
+                                    beginAtZero: true
+                                }
+                            }
+                        }
+                    });
+                });
+        }
+
+        // Cargar combinaciones al cargar la página
+        window.onload = function() {
+            obtenerCombinaciones();
+        };
+    </script>
+</body>
+</html>
